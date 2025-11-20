@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: llm-quiz-solver
+    env: docker
+    plan: free
+    branch: main
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: AIPROXY_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
