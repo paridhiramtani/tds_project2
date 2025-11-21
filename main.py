@@ -38,6 +38,18 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
+@app.get("/")
+async def root():
+    return {
+        "message": "LLM Quiz Solver API is running.",
+        "docs": "/docs",
+        "health": "/health"
+    }
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return JSONResponse(status_code=204)
+
 # --- Models ---
 
 class RunRequest(BaseModel):
