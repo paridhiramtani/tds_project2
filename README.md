@@ -1,12 +1,13 @@
-# LLM Analysis Quiz Solver
+# LLM Quiz Solver Agent
 
-A high-performance, automated agent to solve data analysis quizzes using FastAPI, Playwright, and LLM-based code execution.
+A high-performance, automated agent to solve data analysis quizzes using FastAPI, Playwright, and a Multi-Model Agentic Strategy (Reasoning, Vision, Coding).
 
 ## Features
-- **Automated Browser Navigation**: Uses Playwright to navigate and scrape quiz tasks.
-- **Intelligent Solver**: Uses GPT-4o-mini (via AIProxy) to generate and execute Python code for any data task.
-- **Robust Execution**: Handles concurrent requests, retries, and recursive task chains.
-- **Dockerized**: Ready for deployment.
+-   **Multi-Model Agents**: Uses specialized agents for Reasoning, Vision (OCR/Charts), and Coding.
+-   **Frontend Dashboard**: Professional web UI to run tasks and monitor logs in real-time.
+-   **Robust Scraper**: Captures full-page screenshots and handles complex DOMs.
+-   **Secure API**: Strict secret verification and input validation.
+-   **Task Tracking**: Async background processing with status polling.
 
 ## Setup
 
@@ -17,11 +18,10 @@ A high-performance, automated agent to solve data analysis quizzes using FastAPI
     ```
 
 2.  **Environment Variables**:
-    Set your API token in a `.env` file or export it:
+    Create a `.env` file or export:
     ```bash
-    export AIPROXY_TOKEN=your_token_here
-    # OR
-    export OPENAI_API_KEY=your_key_here
+    export AIPROXY_TOKEN=your_token
+    export USER_SECRET=your_secret_code
     ```
 
 3.  **Run the Application**:
@@ -29,27 +29,29 @@ A high-performance, automated agent to solve data analysis quizzes using FastAPI
     uvicorn main:app --host 0.0.0.0 --port 8000
     ```
 
+4.  **Access Dashboard**:
+    Open `http://localhost:8000` in your browser.
+
 ## Docker Usage
 
 ```bash
 docker build -t quiz-solver .
-docker run -p 8000:8000 -e AIPROXY_TOKEN=your_token quiz-solver
+docker run -p 8000:8000 -e AIPROXY_TOKEN=your_token -e USER_SECRET=your_secret quiz-solver
 ```
 
-## API Endpoint
+## API Endpoints
 
-**POST /run**
-```json
-{
-  "email": "student@example.com",
-  "secret": "your_secret",
-  "url": "https://example.com/quiz-start"
-}
-```
+-   `GET /`: Frontend Dashboard
+-   `POST /run`: Start a new task (returns `task_id`)
+-   `GET /tasks/{task_id}`: Get task status and logs
+-   `POST /analyze`: Direct access to the solver agent
+-   `GET /health`: Health check
 
 ## Project Structure
-- `main.py`: Entry point and orchestration loop.
-- `core/browser.py`: Playwright scraper.
-- `core/solver.py`: LLM agent and code executor.
-- `core/submitter.py`: API submission handler.
-- `prompts/`: System and User prompts for the contest.
+-   `main.py`: API server and task orchestration.
+-   `static/`: Frontend assets.
+-   `core/`:
+    -   `solver.py`: Multi-agent logic (Reasoning, Vision, Coding).
+    -   `browser.py`: Playwright scraper with screenshot support.
+    -   `submitter.py`: Submission handler.
+-   `prompts/`: Security contest prompts.
