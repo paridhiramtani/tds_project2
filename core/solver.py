@@ -19,15 +19,93 @@ class TaskSolver:
             base_url=OPENAI_BASE_URL if AIPROXY_TOKEN else None
         )
 
-    def generate_code(self, user_prompt: str, model: str = "gpt-4o-mini") -> str:
+    def _call_llm(self, messages: list, model: str = "gpt-4o-mini", response_format=None) -> str:
+        try:
+            logger.info(f"Calling LLM {model}")
+            kwargs = {
+                "model": model,
+                "messages": messages,
+                "temperature": 0
+            }
+            if response_format:
+                kwargs["response_format"] = response_format
+                
+            response = self.client.chat.completions.create(**kwargs)
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"LLM call failed: {e}")
+            raise
+
+    def analyze_task(self, task_data: dict) -> dict:
         """
-        Uses LLM to generate Python code to solve the task.
+        Reasoning Agent: Analyzes text and screenshot to understand the task.
+        """
+        text_content = task_data.get("text", "")
+        screenshot_b64 = task_data.get("screenshot", "")
+        
+        system_prompt = """
+You are an expert Data Analyst and Logic Reasoner.
+Your goal is to deconstruct a data processing task.
+You will be given the text content of a webpage and a screenshot.
+
+Output a JSON object with the following structure:
+{
+  "question": "The exact question to be answered",
+  "submit_url": "The URL to submit the answer to",
+  "task_type": "visual | data | hybrid",
+  "plan": "Step-by-step plan to solve the task using Python",
+  "visual_extraction_needed": boolean // true if we need to extract data from the screenshot (e.g. charts, unselectable text)
+}
+"""
+        user_content = [
+            {"type": "text", "text": f"Webpage Text Content:\n{text_content}"}
+        ]
+        
+        if screenshot_b64:
+            user_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"}
+            })
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ]
+        
+        response = self._call_llm(messages, model="gpt-4o", response_format={"type": "json_object"})
+        return json.loads(response)
+
+    def extract_visual_data(self, task_data: dict, question: str) -> str:
+        """
+        Vision Agent: Extracts specific data from the screenshot.
+        """
+        screenshot_b64 = task_data.get("screenshot", "")
+        if not screenshot_b64:
+            return "No screenshot available."
+            
+        system_prompt = """
+You are an expert in Optical Character Recognition (OCR) and Visual Data Extraction.
+Extract the specific data requested by the user from the provided screenshot.
+Return ONLY the extracted data in a structured format (CSV, JSON, or plain text) that is easy to parse programmatically.
+"""
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": [
+                {"type": "text", "text": f"Extract data relevant to this question: {question}"},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"}}
+            ]}
+        ]
+        
+        return self._call_llm(messages, model="gpt-4o")
+
+    def generate_code(self, plan: dict, visual_data: str = None, feedback: str = None) -> str:
+        """
+        Coding Agent: Generates Python code based on the plan.
         """
         system_prompt = """
-You are an expert Python developer and data analyst. 
-Your goal is to solve a data processing task described by the user.
-You must output ONLY valid Python code. No markdown, no explanations.
-The code will be executed directly.
+You are an expert Python developer.
+Your goal is to write a Python script to solve a data task based on a provided plan.
+You must output ONLY valid Python code. No markdown.
 
 Available libraries: 
 - Data: pandas, numpy, sklearn
@@ -35,39 +113,31 @@ Available libraries:
 - Documents: pypdf, pdfplumber, tabula (PDF tables), python-docx, openpyxl
 - Media: PIL (images), pytesseract (OCR), cv2 (OpenCV), pydub (audio), speech_recognition
 
-The task description contains a question and a submission URL.
 Your code MUST:
-1. Parse the task to find the specific question and the submission URL.
-2. Perform the necessary data analysis/processing to answer the question.
-   - If you need to download files, use `requests`.
-   - If you need to read a PDF table, use `tabula` or `pdfplumber`.
-   - If you need OCR, use `pytesseract`.
-3. Print a VALID JSON string to stdout with the following format:
-   {"answer": <calculated_answer>, "submit_url": "<extracted_url>"}
-   
-   - "answer" can be a number, string, or JSON object/list as required.
-   - "submit_url" must be the full URL found in the text.
+1. Solve the problem described in the plan.
+2. If 'visual_data' is provided, use it directly (it's pre-extracted from the screen).
+3. Print a VALID JSON string to stdout with the format:
+   {"answer": <calculated_answer>, "submit_url": "<submit_url_from_plan>"}
 """
-        try:
-            logger.info(f"Generating code using model: {model}")
-            response = self.client.chat.completions.create(
-                model=model, 
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0
-            )
-            code = response.choices[0].message.content
-            # Clean up markdown if present
-            if code.startswith("```python"):
-                code = code.replace("```python", "").replace("```", "")
-            elif code.startswith("```"):
-                code = code.replace("```", "")
-            return code.strip()
-        except Exception as e:
-            logger.error(f"LLM generation failed: {e}")
-            raise
+        user_prompt = f"Plan: {json.dumps(plan, indent=2)}\n"
+        if visual_data:
+            user_prompt += f"\nVisual Data Extracted: {visual_data}\n"
+        if feedback:
+            user_prompt += f"\nPrevious Attempt Feedback: {feedback}\n"
+            
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        code = self._call_llm(messages, model="gpt-4o")
+        
+        # Clean up markdown
+        if code.startswith("```python"):
+            code = code.replace("```python", "").replace("```", "")
+        elif code.startswith("```"):
+            code = code.replace("```", "")
+        return code.strip()
 
     def execute_code(self, code: str) -> str:
         """
@@ -76,52 +146,61 @@ Your code MUST:
         import uuid
         filename = f"temp_solution_{uuid.uuid4().hex}.py"
         try:
-            # Write code to a temporary file
             with open(filename, "w", encoding="utf-8") as f:
                 f.write(code)
             
-            # Execute
             result = subprocess.run(
                 [sys.executable, filename],
                 capture_output=True,
                 text=True,
-                timeout=60 # 1 minute max execution
+                timeout=60
             )
             
             if result.returncode != 0:
-                logger.error(f"Code execution failed: {result.stderr}")
                 raise Exception(f"Execution error: {result.stderr}")
                 
             return result.stdout.strip()
         except Exception as e:
-            logger.error(f"Execution wrapper failed: {e}")
             raise
         finally:
-            # Cleanup
             if os.path.exists(filename):
                 os.remove(filename)
 
-    def solve(self, task_description: str, feedback: str = None, model: str = "gpt-4o-mini"):
-        logger.info("Generating solution code...")
-        
-        prompt = f"Task: {task_description}\n\nWrite a Python script to solve this."
-        if feedback:
-            prompt += f"\n\nPrevious attempt failed with feedback: {feedback}\nPlease adjust your code to fix this."
-            
-        code = self.generate_code(prompt, model=model)
-        logger.info("Executing solution code...")
-        result = self.execute_code(code)
-        
-        # Try to parse result as JSON if possible, else return string/number
+    def solve(self, task_data: dict, feedback: str = None, model: str = "gpt-4o"):
+        """
+        Orchestrates the multi-agent flow.
+        """
         try:
-            return json.loads(result)
-        except:
-            # Try to convert to number if possible
+            # 1. Analyze Task (Reasoning)
+            # Only re-analyze if it's the first attempt (no feedback)
+            if not feedback:
+                logger.info("Analyzing task...")
+                self.analysis = self.analyze_task(task_data)
+                logger.info(f"Analysis: {self.analysis}")
+            
+            # 2. Vision Extraction (if needed)
+            visual_data = None
+            if self.analysis.get("visual_extraction_needed"):
+                logger.info("Extracting visual data...")
+                visual_data = self.extract_visual_data(task_data, self.analysis["question"])
+            
+            # 3. Generate Code (Coding)
+            logger.info("Generating code...")
+            code = self.generate_code(self.analysis, visual_data, feedback)
+            
+            # 4. Execute
+            logger.info("Executing code...")
+            result = self.execute_code(code)
+            
+            # Parse result
             try:
-                if "." in result:
-                    return float(result)
-                return int(result)
+                return json.loads(result)
             except:
-                return result
+                # Try to salvage if it's just the answer
+                return {"answer": result, "submit_url": self.analysis.get("submit_url")}
+                
+        except Exception as e:
+            logger.error(f"Solver failed: {e}")
+            return {"error": str(e)}
 
 solver = TaskSolver()
