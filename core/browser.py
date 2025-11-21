@@ -32,7 +32,10 @@ class QuizScraper:
             
             # Wait for the content to load. The requirements mention #result or similar.
             # We'll wait for the body to be populated.
-            await page.wait_for_load_state("networkidle")
+            try:
+                await page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                logger.warning("Timeout waiting for networkidle, proceeding anyway.")
             
             # Specific handling for the sample provided in requirements
             # The sample puts content in #result. Let's try to get that first, else body.
@@ -40,8 +43,16 @@ class QuizScraper:
                 content = await page.inner_text("body", timeout=5000)
             except Exception:
                 content = await page.content()
+            
+            # Capture screenshot
+            import base64
+            screenshot_bytes = await page.screenshot(full_page=True)
+            screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
                 
-            return content
+            return {
+                "text": content,
+                "screenshot": screenshot_b64
+            }
         except Exception as e:
             logger.error(f"Error scraping {url}: {e}")
             raise
