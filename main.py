@@ -18,11 +18,19 @@ from config import HOST, PORT
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+# ... (imports remain same)
+
 app = FastAPI(
     title="LLM Quiz Solver API",
     description="Professional Agentic API for solving data quizzes.",
     version="1.0.0"
 )
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # In-memory storage for task status (Use Redis/DB in production)
 TASKS: Dict[str, Dict[str, Any]] = {}
@@ -40,11 +48,11 @@ async def health_check():
 
 @app.get("/")
 async def root():
-    return {
-        "message": "LLM Quiz Solver API is running.",
-        "docs": "/docs",
-        "health": "/health"
-    }
+    return FileResponse("static/index.html")
+
+@app.get("/tasks")
+async def list_tasks():
+    return TASKS
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
