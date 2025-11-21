@@ -85,10 +85,20 @@ async def process_task(task_id: str, email: str, secret: str, initial_url: str):
     TASKS[task_id]["status"] = "processing"
     TASKS[task_id]["logs"].append(f"Started processing {initial_url}")
     
-    current_url = initial_url
+    # Global timeout enforcement
+    start_time = datetime.utcnow()
     
     # Safety break to prevent infinite loops
     for step_idx in range(10): 
+        # Check global timeout
+        elapsed = (datetime.utcnow() - start_time).total_seconds()
+        if elapsed > 160: # Leave 20s buffer
+            msg = f"Global timeout approaching ({elapsed}s). Stopping."
+            logger.warning(msg)
+            TASKS[task_id]["logs"].append(msg)
+            TASKS[task_id]["status"] = "timeout"
+            break
+
         try:
             logger.info(f"[{task_id}] Processing URL: {current_url}")
             TASKS[task_id]["logs"].append(f"Step {step_idx+1}: Navigating to {current_url}")
