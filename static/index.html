@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Quiz Solver Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; }
+        .card { background-color: #1e293b; border-radius: 0.5rem; padding: 1.5rem; }
+        .btn { background-color: #3b82f6; color: white; padding: 0.5rem 1rem; border-radius: 0.25rem; transition: background 0.2s; }
+        .btn:hover { background-color: #2563eb; }
+        .input { background-color: #334155; border: 1px solid #475569; color: white; padding: 0.5rem; border-radius: 0.25rem; width: 100%; margin-bottom: 1rem; }
+        pre { background-color: #0f172a; padding: 1rem; border-radius: 0.25rem; overflow-x: auto; }
+    </style>
+</head>
+<body class="p-8">
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-8 flex justify-between items-center">
+            <h1 class="text-3xl font-bold text-blue-400">LLM Quiz Solver Agent</h1>
+            <div class="text-sm text-gray-400">Status: <span id="system-status" class="text-green-400">Checking...</span></div>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <!-- Left Column: Run Form -->
+            <div class="card md:col-span-1 h-fit">
+                <h2 class="text-xl font-semibold mb-4">Start New Task</h2>
+                <form id="run-form">
+                    <label class="block text-sm mb-1">Email</label>
+                    <input type="email" id="email" class="input" required placeholder="student@example.com">
+                    
+                    <label class="block text-sm mb-1">Secret</label>
+                    <input type="text" id="secret" class="input" required placeholder="Your Secret">
+                    
+                    <label class="block text-sm mb-1">Task URL</label>
+                    <input type="url" id="url" class="input" required placeholder="https://example.com/quiz">
+                    
+                    <button type="submit" class="btn w-full font-bold">Run Solver Agent</button>
+                </form>
+                <div id="form-msg" class="mt-4 text-sm text-center hidden"></div>
+            </div>
+
+            <!-- Right Column: Task List & Logs -->
+            <div class="card md:col-span-2">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold">Active Tasks</h2>
+                    <button onclick="fetchTasks()" class="text-sm text-blue-400 hover:underline">Refresh</button>
+                </div>
+                
+                <div id="task-list" class="space-y-4 mb-8">
+                    <!-- Tasks will be injected here -->
+                    <div class="text-gray-500 text-center py-4">No active tasks found.</div>
+                </div>
+
+                <div id="log-viewer" class="hidden border-t border-gray-700 pt-4">
+                    <h3 class="text-lg font-semibold mb-2">Task Logs: <span id="log-task-id" class="text-blue-300"></span></h3>
+                    <pre id="logs" class="text-xs font-mono h-64 overflow-y-auto text-green-300"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        // Check Health
+        async function checkHealth() {
+            try {
+                const res = await fetch(`${API_BASE}/health`);
+                const data = await res.json();
+                document.getElementById('system-status').textContent = data.status === 'healthy' ? 'Online' : 'Issues Detected';
+            } catch (e) {
+                document.getElementById('system-status').textContent = 'Offline';
+                document.getElementById('system-status').classList.replace('text-green-400', 'text-red-500');
+            }
+        }
+
+        // Submit Form
+        document.getElementById('run-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            const msg = document.getElementById('form-msg');
+            
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+            msg.classList.add('hidden');
+
+            try {
+                const payload = {
+                    email: document.getElementById('email').value,
+                    secret: document.getElementById('secret').value,
+                    url: document.getElementById('url').value
+                };
+
+                const res = await fetch(`${API_BASE}/run`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    msg.textContent = `Task Started! ID: ${data.task_id}`;
+                    msg.className = 'mt-4 text-sm text-center text-green-400 block';
+                    fetchTasks();
+                    viewLogs(data.task_id); // Auto-view logs
+                } else {
+                    throw new Error(data.detail || 'Failed to start task');
+                }
+            } catch (err) {
+                msg.textContent = `Error: ${err.message}`;
+                msg.className = 'mt-4 text-sm text-center text-red-400 block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Run Solver Agent';
+            }
+        });
+
+        // Fetch Tasks
+        async function fetchTasks() {
+            try {
+                const res = await fetch(`${API_BASE}/tasks`);
+                if (!res.ok) return; // Endpoint might not exist yet
+                const tasks = await res.json();
+                
+                const list = document.getElementById('task-list');
+                if (Object.keys(tasks).length === 0) {
+                    list.innerHTML = '<div class="text-gray-500 text-center py-4">No active tasks found.</div>';
+                    return;
+                }
+
+                list.innerHTML = Object.entries(tasks).reverse().map(([id, task]) => `
+                    <div class="bg-slate-800 p-3 rounded border border-slate-700 flex justify-between items-center">
+                        <div>
+                            <div class="font-mono text-xs text-gray-400">${id.slice(0,8)}...</div>
+                            <div class="text-sm font-semibold ${getStatusColor(task.status)}">${task.status.toUpperCase()}</div>
+                            <div class="text-xs text-gray-500">${new Date(task.created_at).toLocaleTimeString()}</div>
+                        </div>
+                        <button onclick="viewLogs('${id}')" class="btn text-xs px-2 py-1">View Logs</button>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error("Failed to fetch tasks", e);
+            }
+        }
+
+        function getStatusColor(status) {
+            switch(status) {
+                case 'queued': return 'text-yellow-400';
+                case 'processing': return 'text-blue-400';
+                case 'completed': return 'text-green-400';
+                case 'failed': return 'text-red-400';
+                default: return 'text-gray-400';
+            }
+        }
+
+        // View Logs
+        let currentLogInterval = null;
+        async function viewLogs(taskId) {
+            const viewer = document.getElementById('log-viewer');
+            const title = document.getElementById('log-task-id');
+            const pre = document.getElementById('logs');
+            
+            viewer.classList.remove('hidden');
+            title.textContent = taskId;
+            pre.textContent = 'Loading logs...';
+
+            if (currentLogInterval) clearInterval(currentLogInterval);
+
+            const update = async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/tasks/${taskId}`);
+                    const data = await res.json();
+                    pre.textContent = data.logs.join('\n') || 'No logs yet...';
+                    pre.scrollTop = pre.scrollHeight; // Auto-scroll
+                } catch (e) {
+                    pre.textContent = 'Error loading logs.';
+                }
+            };
+
+            update();
+            currentLogInterval = setInterval(update, 2000); // Poll every 2s
+        }
+
+        // Init
+        checkHealth();
+        fetchTasks();
+        setInterval(fetchTasks, 5000); // Refresh list every 5s
+    </script>
+</body>
+</html>
