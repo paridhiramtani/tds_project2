@@ -7,14 +7,36 @@ app = FastAPI()
 
 @app.get("/quiz-1", response_class=HTMLResponse)
 async def quiz_1():
-    # A simple task: Sum of two numbers
-    html_content = """
+    # The complex sample provided by the user
+    # It uses atob to decode a string which contains the task
+    # The decoded string is:
+    # Q834. Download <a href="http://localhost:8001/data.csv">file</a>.
+    # What is the sum of the "value" column?
+    # Post your answer to http://localhost:8001/submit with this JSON payload: ...
+    
+    # Let's construct a similar base64 string but pointing to our local server
+    # Task: "Calculate the sum of 100 and 200. Submit to http://localhost:8001/submit"
+    # JSON: {"answer": 300}
+    
+    task_text = """
+    Q1. Calculate the sum of 100 and 200.
+    Post your answer to http://localhost:8001/submit with this JSON payload:
+    {
+        "email": "test@example.com",
+        "secret": "test",
+        "url": "http://localhost:8001/quiz-1",
+        "answer": 300
+    }
+    """
+    encoded = base64.b64encode(task_text.encode()).decode()
+    
+    html_content = f"""
     <html>
     <body>
-        <div id="task">
-            Calculate the sum of 50 and 75.
-            Submit your answer to http://localhost:8001/submit
-        </div>
+        <div id="result"></div>
+        <script>
+          document.querySelector("#result").innerHTML = atob("{encoded}");
+        </script>
     </body>
     </html>
     """
