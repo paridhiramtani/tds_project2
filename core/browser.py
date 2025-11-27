@@ -1,7 +1,6 @@
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Page
 import logging
-import base64
 
 logger = logging.getLogger(__name__)
 
@@ -13,16 +12,8 @@ class QuizScraper:
     async def start(self):
         if not self.playwright:
             self.playwright = await async_playwright().start()
-            # Launch with arguments to prevent crashes in Docker/Render environment
-            self.browser = await self.playwright.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage", # Critical for Render memory limits
-                    "--disable-gpu"
-                ]
-            )
+            # Launch headless for production, maybe headed for debugging if needed
+            self.browser = await self.playwright.chromium.launch(headless=True)
 
     async def stop(self):
         if self.browser:
@@ -30,44 +21,31 @@ class QuizScraper:
         if self.playwright:
             await self.playwright.stop()
 
-    async def get_task_from_url(self, url: str) -> dict:
+    async def get_task_from_url(self, url: str) -> str:
         if not self.browser:
             await self.start()
         
-        # Create context with a standard viewport
-        context = await self.browser.new_context(viewport={"width": 1280, "height": 720})
-        page = await context.new_page()
-        
+        page = await self.browser.new_page()
         try:
             logger.info(f"Navigating to {url}")
-            # Increased timeout for slow sites
-            await page.goto(url, timeout=60000)
+            await page.goto(url)
             
-            # --- WAITING STRATEGY ---
-            
-            # 1. Wait for the page body to be physically visible
+            # Wait for the content to load. The requirements mention #result or similar.
+            # We'll wait for the body to be populated.
             try:
-                await page.wait_for_selector("body", state="visible", timeout=10000)
+                await page.wait_for_load_state("networkidle", timeout=5000)
             except Exception:
-                logger.warning("Timeout waiting for body visibility.")
-
-            # 2. Critical: Wait for JavaScript execution.
-            # Many tasks use 'atob()' or React, which takes a moment to render the text.
-            # The 'networkidle' state is often unreliable for SPAs, so we force a sleep.
-            await page.wait_for_timeout(5000) 
-
-            # --- EXTRACTION STRATEGY ---
-
-            # 3. Get Human-Readable Text (innerText)
-            # This skips the <script> tags and gets what the user actually sees.
-            content = await page.evaluate("document.body.innerText")
+                logger.warning("Timeout waiting for networkidle, proceeding anyway.")
             
-            # Fallback: If innerText is empty (some sites hide body), get raw HTML
-            if not content or len(content.strip()) < 20:
-                logger.info("innerText empty, falling back to raw HTML content")
+            # Specific handling for the sample provided in requirements
+            # The sample puts content in #result. Let's try to get that first, else body.
+            try:
+                content = await page.inner_text("body", timeout=5000)
+            except Exception:
                 content = await page.content()
-
-            # 4. Capture Screenshot
+            
+            # Capture screenshot
+            import base64
             screenshot_bytes = await page.screenshot(full_page=True)
             screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
                 
@@ -80,7 +58,6 @@ class QuizScraper:
             raise
         finally:
             await page.close()
-            await context.close()
 
 # Global instance
 scraper = QuizScraper()
