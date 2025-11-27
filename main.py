@@ -89,6 +89,7 @@ async def process_task(task_id: str, email: str, secret: str, initial_url: str):
     start_time = datetime.utcnow()
     
     # Safety break to prevent infinite loops
+    current_url = initial_url
     for step_idx in range(10): 
         # Check global timeout
         elapsed = (datetime.utcnow() - start_time).total_seconds()
@@ -130,6 +131,7 @@ async def process_task(task_id: str, email: str, secret: str, initial_url: str):
                 if not isinstance(result, dict) or "answer" not in result or "submit_url" not in result:
                     msg = f"Invalid solver result: {result}"
                     logger.error(msg)
+                    TASKS[task_id]["logs"].append(msg)
                     feedback = f"Invalid JSON format. Output: {result}. Fix format."
                     continue
                     
