@@ -172,8 +172,8 @@ Your code MUST:
         """
         try:
             # 1. Analyze Task (Reasoning)
-            # Only re-analyze if it's the first attempt (no feedback)
-            if not feedback:
+            # Only re-analyze if it's the first attempt (no feedback) or if analysis is missing
+            if not feedback or not hasattr(self, 'analysis'):
                 logger.info("Analyzing task...")
                 self.analysis = self.analyze_task(task_data)
                 logger.info(f"Analysis: {self.analysis}")
