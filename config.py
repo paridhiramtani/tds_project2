@@ -5,7 +5,7 @@ AIPROXY_TOKEN = os.getenv("AIPROXY_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # If using AIProxy, we might need to set the base URL
-OPENAI_BASE_URL = "https://aiproxy.sanand.workers.dev/openai/v1" if AIPROXY_TOKEN else None
+OPENAI_BASE_URL = "https://aiproxy.sanand.workers.dev/openai/v1" if AIPROXY_TOKEN else "https://api.openai.com/v1"
 
 # Application Settings
 HOST = "0.0.0.0"
