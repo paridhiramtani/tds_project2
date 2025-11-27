@@ -2,7 +2,7 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install system dependencies for Playwright and data tools
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first to cache pip install
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -24,5 +24,6 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
-# Run the application
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# --- FIX IS HERE ---
+# Changed from 'app.main:app' to 'main:app' to use the correct root file
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
